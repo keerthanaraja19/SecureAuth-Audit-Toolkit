@@ -1,0 +1,206 @@
+import requests
+from datetime import datetime
+
+SECURITY_HEADERS = [
+    "Strict-Transport-Security",
+    "Content-Security-Policy",
+    "X-Frame-Options",
+    "X-Content-Type-Options",
+    "Referrer-Policy",
+    "Permissions-Policy"
+]
+
+
+def check_https(url):
+    return url.startswith("https://")
+
+
+def check_headers(headers):
+    results = {}
+
+    for header in SECURITY_HEADERS:
+        if header in headers:
+            results[header] = "Present"
+        else:
+            results[header] = "Missing"
+
+    return results
+
+
+def check_cookies(response):
+    cookies = []
+
+    for cookie in response.cookies:
+        cookies.append({
+            "Name": cookie.name,
+            "Secure": cookie.secure,
+            "HttpOnly": "HttpOnly" in str(cookie),
+        })
+
+    return cookies
+
+
+def risk_score(https, headers):
+    score = 100
+
+    if not https:
+        score -= 30
+
+    for value in headers.values():
+        if value == "Missing":
+            score -= 10
+
+    if score < 0:
+        score = 0
+
+    return score
+
+
+def generate_html(url, report):
+    html = f"""
+    <html>
+    <head>
+    <title>Authentication Audit Report</title>
+
+    <style>
+    body {{
+        font-family: Arial;
+        margin:40px;
+        background:#f4f4f4;
+    }}
+
+    table {{
+        border-collapse: collapse;
+        width:100%;
+        background:white;
+    }}
+
+    th,td {{
+        border:1px solid gray;
+        padding:10px;
+    }}
+
+    th {{
+        background:#0d6efd;
+        color:white;
+    }}
+
+    h1 {{
+        color:#0d6efd;
+    }}
+
+    </style>
+
+    </head>
+
+    <body>
+
+    <h1>Secure Authentication Audit Report</h1>
+
+    <h3>Target Website</h3>
+    <p>{url}</p>
+
+    <h3>Audit Time</h3>
+    <p>{datetime.now()}</p>
+
+    <h3>HTTPS</h3>
+    <p>{report["HTTPS"]}</p>
+
+    <h3>Risk Score</h3>
+    <p>{report["Risk Score"]}/100</p>
+
+    <h3>Security Headers</h3>
+
+    <table>
+
+    <tr>
+    <th>Header</th>
+    <th>Status</th>
+    </tr>
+    """
+
+    for h, s in report["Headers"].items():
+        html += f"<tr><td>{h}</td><td>{s}</td></tr>"
+
+    html += "</table>"
+
+    html += "<h3>Cookies</h3>"
+
+    html += """
+    <table>
+    <tr>
+    <th>Name</th>
+    <th>Secure</th>
+    <th>HttpOnly</th>
+    </tr>
+    """
+
+    for cookie in report["Cookies"]:
+        html += f"""
+        <tr>
+        <td>{cookie['Name']}</td>
+        <td>{cookie['Secure']}</td>
+        <td>{cookie['HttpOnly']}</td>
+        </tr>
+        """
+
+    html += """
+    </table>
+    </body>
+    </html>
+    """
+
+    with open("audit_report.html", "w", encoding="utf-8") as f:
+        f.write(html)
+
+
+def audit(url):
+
+    try:
+        response = requests.get(url, timeout=10)
+
+        https = check_https(url)
+
+        headers = check_headers(response.headers)
+
+        cookies = check_cookies(response)
+
+        score = risk_score(https, headers)
+
+        report = {
+            "HTTPS": "Enabled" if https else "Disabled",
+            "Headers": headers,
+            "Cookies": cookies,
+            "Risk Score": score
+        }
+
+        print("\n========= Authentication Audit =========")
+
+        print("Website :", url)
+        print("HTTPS   :", report["HTTPS"])
+        print("Score   :", score)
+
+        print("\nSecurity Headers")
+
+        for k, v in headers.items():
+            print(f"{k:<35} {v}")
+
+        print("\nCookies")
+
+        if cookies:
+            for c in cookies:
+                print(c)
+        else:
+            print("No cookies found")
+
+        generate_html(url, report)
+
+        print("\nReport saved as audit_report.html")
+
+    except Exception as e:
+        print("Error:", e)
+
+
+if __name__ == "__main__":
+    target = input("Enter Website URL (https://example.com): ")
+    audit(target)
